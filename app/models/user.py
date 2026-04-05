@@ -35,6 +35,8 @@ class UserUpdate(BaseModel):
     location: Optional[GeoJSONPoint] = None
     address_line: Optional[str] = None
     device_info: Optional[DeviceInfo] = None
+    work_title: Optional[str] = None
+    bio: Optional[str] = None
 
 
 class UserResponse(BaseModel):
@@ -55,6 +57,8 @@ class UserResponse(BaseModel):
     location: Optional[GeoJSONPoint] = None
     address_line: Optional[str] = None
     device_info: Optional[DeviceInfo] = None
+    work_title: Optional[str] = None
+    bio: Optional[str] = None
     last_seen_at: Optional[datetime] = None
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
