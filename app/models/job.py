@@ -69,6 +69,7 @@ class JobResponse(BaseModel):
     conversation_count: int = 0
     poster_rating_avg: float = 0.0
     poster_rating_count: int = 0
+    category_slug: Optional[str] = None
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
 
@@ -103,6 +104,7 @@ def job_doc_to_response(doc: dict, poster_name: str | None = None) -> JobRespons
         conversation_count=doc.get("conversation_count", 0),
         poster_rating_avg=doc.get("poster_rating_avg", 0.0),
         poster_rating_count=doc.get("poster_rating_count", 0),
+        category_slug=doc.get("category_slug"),
         created_at=doc.get("created_at"),
         updated_at=doc.get("updated_at"),
     )

@@ -108,7 +108,14 @@ async def list_jobs(
         query["title"] = {"$regex": escaped, "$options": "i"}
 
     if category_id:
-        query["category_id"] = ObjectId(category_id)
+        try:
+            query["category_id"] = ObjectId(category_id)
+        except Exception:
+            cat = await db.categories.find_one({"slug": category_id})
+            if cat:
+                query["category_id"] = cat["_id"]
+            else:
+                return []
     if budget_type:
         query["budget_type"] = budget_type
     if urgency:
@@ -117,7 +124,22 @@ async def list_jobs(
     if lat is not None and lng is not None:
         query.update(build_near_sphere_query("location", lat, lng, radius_km))
 
-    cursor = db.jobs.find(query).sort("created_at", -1).skip(skip).limit(limit)
+    pipeline = [
+        {"$match": query},
+        {"$sort": {"created_at": -1}},
+        {"$skip": skip},
+        {"$limit": limit},
+        {"$lookup": {
+            "from": "categories",
+            "localField": "category_id",
+            "foreignField": "_id",
+            "as": "_category",
+        }},
+        {"$addFields": {
+            "category_slug": {"$arrayElemAt": ["$_category.slug", 0]},
+        }},
+    ]
+    cursor = db.jobs.aggregate(pipeline)
     return [job_doc_to_response(doc) async for doc in cursor]
 
 
