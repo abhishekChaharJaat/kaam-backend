@@ -38,11 +38,8 @@ async def create_job(
     if await check_duplicate_job(db, user["_id"], data.title, cat_id):
         raise HTTPException(status_code=409, detail="Duplicate job detected. Wait before posting a similar job.")
 
-    location = None
-    if data.latitude is not None and data.longitude is not None:
-        location = {"type": "Point", "coordinates": [data.longitude, data.latitude]}
-    elif user.get("location"):
-        location = user["location"]
+    # Always use user's stored location
+    location = user.get("location")
 
     job_doc = {
         "posted_by_user_id": user["_id"],
@@ -60,10 +57,10 @@ async def create_job(
         "status": "open",
         "required_date": data.required_date,
         "required_time_slot": data.required_time_slot,
-        "city": data.city or user.get("city"),
-        "state": data.state or user.get("state"),
-        "locality": data.locality or user.get("locality"),
-        "address_line": data.address_line,
+        "city": user.get("city"),
+        "state": user.get("state"),
+        "locality": user.get("locality"),
+        "address_line": user.get("address_line"),
         "location": location,
         "images": data.images,
         "assigned_to_user_id": None,

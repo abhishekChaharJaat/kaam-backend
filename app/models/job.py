@@ -19,12 +19,6 @@ class JobCreate(BaseModel):
     urgency: str = "flexible"
     required_date: Optional[str] = None
     required_time_slot: Optional[str] = None
-    city: Optional[str] = None
-    state: Optional[str] = None
-    locality: Optional[str] = None
-    address_line: Optional[str] = None
-    latitude: Optional[float] = None
-    longitude: Optional[float] = None
     images: list[str] = Field(default_factory=list)
 
 

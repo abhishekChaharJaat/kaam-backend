@@ -38,7 +38,11 @@ async def update_own_profile(
     if update_data:
         update_data["updated_at"] = datetime.utcnow()
         if "location" in update_data and update_data["location"]:
-            update_data["location"] = update_data["location"]
+            loc = update_data["location"]
+            update_data["location"] = {
+                "type": loc.get("type", "Point") if isinstance(loc, dict) else loc.type,
+                "coordinates": loc.get("coordinates", [0.0, 0.0]) if isinstance(loc, dict) else loc.coordinates,
+            }
 
         await db.users.update_one(
             {"_id": user["_id"]},

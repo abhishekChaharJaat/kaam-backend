@@ -36,6 +36,7 @@ class UserUpdate(BaseModel):
     address_line: Optional[str] = None
     device_info: Optional[DeviceInfo] = None
     work_title: Optional[str] = None
+    work_range_km: Optional[int] = None
     bio: Optional[str] = None
 
 
@@ -58,6 +59,7 @@ class UserResponse(BaseModel):
     address_line: Optional[str] = None
     device_info: Optional[DeviceInfo] = None
     work_title: Optional[str] = None
+    work_range_km: Optional[int] = None
     bio: Optional[str] = None
     last_seen_at: Optional[datetime] = None
     created_at: Optional[datetime] = None
