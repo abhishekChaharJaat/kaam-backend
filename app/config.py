@@ -20,7 +20,7 @@ class Settings(BaseSettings):
 
     CORS_ORIGINS: str = "http://localhost:8081"
 
-    RATE_LIMIT_AUTH_PER_HOUR: int = 10
+    RATE_LIMIT_AUTH_PER_HOUR: int = 100
     RATE_LIMIT_CONVERSATIONS_PER_DAY: int = 20
     MAX_ACTIVE_JOBS_PER_DAY: int = 3
     MAX_IMAGE_SIZE_MB: int = 10

@@ -69,10 +69,37 @@ async def create_review(
     if agg:
         await db.service_profiles.update_one(
             {"user_id": reviewed_oid},
-            {"$set": {"rating_avg": round(agg[0]["avg"], 2), "rating_count": agg[0]["count"]}},
+            {
+                "$set": {
+                    "rating_avg": round(float(agg[0]["avg"]), 2),
+                    "rating_count": int(agg[0]["count"]),
+                },
+                "$setOnInsert": {"user_id": reviewed_oid, "created_at": now},
+            },
+            upsert=True,
         )
 
     return review_doc_to_response(doc)
+
+
+@router.get("/job/{job_id}/me")
+async def get_my_review_status_for_job(
+    job_id: str,
+    clerk_user_id: str = Depends(get_current_user_id),
+):
+    db = get_db()
+    user = await db.users.find_one({"clerk_user_id": clerk_user_id})
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    try:
+        job_oid = ObjectId(job_id)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid job id")
+    review = await db.reviews.find_one({
+        "job_id": job_oid,
+        "reviewer_user_id": user["_id"],
+    })
+    return {"has_reviewed": review is not None}
 
 
 @router.get("/user/{user_id}", response_model=list[ReviewResponse])

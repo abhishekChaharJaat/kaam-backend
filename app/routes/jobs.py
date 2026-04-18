@@ -56,6 +56,7 @@ async def create_job(
         "urgency": data.urgency,
         "status": "open",
         "required_date": data.required_date,
+        "required_date_end": data.required_date_end,
         "required_time_slot": data.required_time_slot,
         "city": user.get("city"),
         "state": user.get("state"),
@@ -363,6 +364,79 @@ async def assign_job(
     return {"message": "Job assigned", "assigned_to_user_id": str(assigned_user_id)}
 
 
+@router.post("/{job_id}/hide")
+async def hide_job(
+    job_id: str,
+    clerk_user_id: str = Depends(get_current_user_id),
+):
+    db = get_db()
+    user = await db.users.find_one({"clerk_user_id": clerk_user_id})
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    try:
+        oid = ObjectId(job_id)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid job ID")
+
+    job = await db.jobs.find_one({"_id": oid})
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    if job["posted_by_user_id"] != user["_id"]:
+        raise HTTPException(status_code=403, detail="Not authorized")
+    if job["status"] != "open":
+        raise HTTPException(
+            status_code=400,
+            detail="Only unassigned open jobs can be hidden",
+        )
+
+    now = datetime.utcnow()
+    await db.jobs.update_one(
+        {"_id": oid},
+        {"$set": {"status": "hidden", "updated_at": now}},
+    )
+    await db.conversations.update_many(
+        {"job_id": oid},
+        {"$set": {"is_disabled": True}},
+    )
+    return {"message": "Job hidden"}
+
+
+@router.post("/{job_id}/unhide")
+async def unhide_job(
+    job_id: str,
+    clerk_user_id: str = Depends(get_current_user_id),
+):
+    db = get_db()
+    user = await db.users.find_one({"clerk_user_id": clerk_user_id})
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    try:
+        oid = ObjectId(job_id)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid job ID")
+
+    job = await db.jobs.find_one({"_id": oid})
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    if job["posted_by_user_id"] != user["_id"]:
+        raise HTTPException(status_code=403, detail="Not authorized")
+    if job["status"] != "hidden":
+        raise HTTPException(status_code=400, detail="Only hidden jobs can be unhidden")
+
+    now = datetime.utcnow()
+    await db.jobs.update_one(
+        {"_id": oid},
+        {"$set": {"status": "open", "updated_at": now}},
+    )
+    await db.conversations.update_many(
+        {"job_id": oid, "is_assigned": False},
+        {"$set": {"is_disabled": False}},
+    )
+    return {"message": "Job unhidden"}
+
+
 @router.post("/{job_id}/reopen")
 async def reopen_job(
     job_id: str,
@@ -421,9 +495,24 @@ async def complete_job(
     if job["status"] != "assigned":
         raise HTTPException(status_code=400, detail="Only assigned jobs can be completed")
 
+    now = datetime.utcnow()
     await db.jobs.update_one(
         {"_id": oid},
-        {"$set": {"status": "completed", "updated_at": datetime.utcnow()}},
+        {"$set": {"status": "completed", "updated_at": now}},
     )
+
+    assigned_user_id = job.get("assigned_to_user_id")
+    if assigned_user_id:
+        completed_count = await db.jobs.count_documents(
+            {"assigned_to_user_id": assigned_user_id, "status": "completed"}
+        )
+        await db.service_profiles.update_one(
+            {"user_id": assigned_user_id},
+            {
+                "$set": {"jobs_completed": completed_count},
+                "$setOnInsert": {"user_id": assigned_user_id, "created_at": now},
+            },
+            upsert=True,
+        )
 
     return {"message": "Job completed"}

@@ -21,6 +21,7 @@ SEED_CATEGORIES = [
     {"name": "Civil Contractor", "slug": "civil-contractor", "sort_order": 18},
     {"name": "Interior Work", "slug": "interior", "sort_order": 19},
     {"name": "Packer / Mover Helper", "slug": "packer-mover", "sort_order": 20},
+    {"name": "Other", "slug": "other", "sort_order": 21},
 ]
 
 SEED_SUBCATEGORIES = {
@@ -50,9 +51,28 @@ SEED_SUBCATEGORIES = {
 }
 
 
+async def ensure_other_category(db) -> None:
+    """Ensure slug `other` exists — mobile app posts jobs with category_id \"other\"."""
+    existing = await db.categories.find_one({"slug": "other"})
+    if existing:
+        return
+    now = datetime.utcnow()
+    await db.categories.insert_one(
+        {
+            "name": "Other",
+            "slug": "other",
+            "sort_order": 21,
+            "icon_url": None,
+            "is_active": True,
+            "created_at": now,
+        }
+    )
+
+
 async def seed_categories(db) -> None:
     existing = await db.categories.count_documents({})
     if existing > 0:
+        await ensure_other_category(db)
         return
 
     now = datetime.utcnow()

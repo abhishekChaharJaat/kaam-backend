@@ -46,13 +46,6 @@ async def sync_clerk_user(
     body: SyncBody = SyncBody(),
 ):
     settings = get_settings()
-    client_ip = get_client_ip(request)
-    check_rate_limit(
-        f"auth_sync:{client_ip}",
-        max_requests=settings.RATE_LIMIT_AUTH_PER_HOUR,
-        window_seconds=3600,
-    )
-
     db = get_db()
     clerk_user_id = payload.get("sub", "")
 
@@ -74,6 +67,15 @@ async def sync_clerk_user(
         )
         existing.update(update_fields)
         return user_doc_to_response(existing)
+
+    # Only rate-limit the expensive path: creating a brand-new user doc.
+    # Existing-user heartbeats above should never burn the quota.
+    client_ip = get_client_ip(request)
+    check_rate_limit(
+        f"auth_sync_create:{client_ip}",
+        max_requests=settings.RATE_LIMIT_AUTH_PER_HOUR,
+        window_seconds=3600,
+    )
 
     email = payload.get("email", payload.get("email_address", ""))
     if not resolved_name:

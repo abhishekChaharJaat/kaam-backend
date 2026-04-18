@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_serializer
 from typing import Optional
 from datetime import datetime, date
 
@@ -18,6 +18,7 @@ class JobCreate(BaseModel):
     budget_max: Optional[int] = None
     urgency: str = "flexible"
     required_date: Optional[str] = None
+    required_date_end: Optional[str] = None
     required_time_slot: Optional[str] = None
     images: list[str] = Field(default_factory=list)
 
@@ -30,6 +31,7 @@ class JobUpdate(BaseModel):
     budget_max: Optional[int] = None
     urgency: Optional[str] = None
     required_date: Optional[str] = None
+    required_date_end: Optional[str] = None
     required_time_slot: Optional[str] = None
     images: Optional[list[str]] = None
 
@@ -50,6 +52,7 @@ class JobResponse(BaseModel):
     urgency: str = "flexible"
     status: str = "open"
     required_date: Optional[str] = None
+    required_date_end: Optional[str] = None
     required_time_slot: Optional[str] = None
     city: Optional[str] = None
     state: Optional[str] = None
@@ -66,6 +69,15 @@ class JobResponse(BaseModel):
     category_slug: Optional[str] = None
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
+
+    @field_serializer("created_at", "updated_at", when_used="json")
+    def serialize_utc_iso(self, v: Optional[datetime]) -> Optional[str]:
+        if v is None:
+            return None
+        if v.tzinfo is not None:
+            return v.isoformat()
+        # Naive datetimes from Mongo are stored as UTC
+        return v.isoformat() + "Z"
 
 
 def job_doc_to_response(doc: dict, poster_name: str | None = None) -> JobResponse:
@@ -85,6 +97,7 @@ def job_doc_to_response(doc: dict, poster_name: str | None = None) -> JobRespons
         urgency=doc.get("urgency", "flexible"),
         status=doc.get("status", "open"),
         required_date=doc.get("required_date"),
+        required_date_end=doc.get("required_date_end"),
         required_time_slot=doc.get("required_time_slot"),
         city=doc.get("city"),
         state=doc.get("state"),

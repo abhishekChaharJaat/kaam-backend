@@ -68,12 +68,30 @@ async def get_public_profile(user_id: str):
     profile = await db.service_profiles.find_one({"user_id": oid})
     resp = user_doc_to_public(user)
     if profile:
-        resp.rating_avg = profile.get("rating_avg", 0.0)
-        resp.rating_count = profile.get("rating_count", 0)
         resp.headline = profile.get("headline")
         resp.experience_years = profile.get("experience_years")
-        resp.jobs_completed = profile.get("jobs_completed", 0)
         resp.skills = [str(s) for s in profile.get("skills", [])]
+
+    # Always compute rating from the reviews collection so the number reflects
+    # real data even for users who don't have a service profile yet.
+    rating_pipeline = [
+        {"$match": {"reviewed_user_id": oid, "is_public": True}},
+        {"$group": {"_id": None, "avg": {"$avg": "$rating"}, "count": {"$sum": 1}}},
+    ]
+    agg = await db.reviews.aggregate(rating_pipeline).to_list(1)
+    if agg:
+        resp.rating_avg = round(float(agg[0]["avg"]), 2)
+        resp.rating_count = int(agg[0]["count"])
+    else:
+        resp.rating_avg = 0.0
+        resp.rating_count = 0
+
+    # Compute jobs_completed live from the jobs collection so it always
+    # reflects reality regardless of whether the cache has been kept in sync.
+    resp.jobs_completed = await db.jobs.count_documents(
+        {"assigned_to_user_id": oid, "status": "completed"}
+    )
+
     return resp
 
 

@@ -12,6 +12,7 @@ class ConversationResponse(BaseModel):
     id: str
     job_id: str
     job_title: Optional[str] = None
+    job_status: Optional[str] = None
     poster_user_id: str
     poster_name: Optional[str] = None
     responder_user_id: str
@@ -41,6 +42,7 @@ def conversation_doc_to_response(doc: dict) -> ConversationResponse:
         id=str(doc["_id"]),
         job_id=str(doc["job_id"]),
         job_title=doc.get("job_title"),
+        job_status=doc.get("job_status"),
         poster_user_id=str(doc["poster_user_id"]),
         poster_name=doc.get("poster_name"),
         responder_user_id=str(doc["responder_user_id"]),

@@ -78,7 +78,9 @@ async def create_conversation(
     result = await db.conversations.insert_one(doc)
     doc["_id"] = result.inserted_id
 
-    await db.jobs.update_one({"_id": job_oid}, {"$inc": {"conversation_count": 1}})
+    # NOTE: conversation_count on the job is bumped when the first message is
+    # actually sent (see send_message), not here — so just tapping "Message
+    # about this job" without sending doesn't inflate the responses count.
     return conversation_doc_to_response(doc)
 
 
@@ -93,7 +95,7 @@ async def list_conversations(
         raise HTTPException(status_code=404, detail="User not found")
 
     if role == "poster":
-        query = {"poster_user_id": user["_id"]}
+        query: dict = {"poster_user_id": user["_id"]}
     elif role == "responder":
         query = {"responder_user_id": user["_id"]}
     else:
@@ -104,18 +106,35 @@ async def list_conversations(
             ]
         }
 
+    # Hide empty conversations (user tapped "Message about this job" but never
+    # actually sent anything). They become visible on both sides as soon as a
+    # first message is sent, which populates last_message_at.
+    query["last_message_at"] = {"$ne": None}
+
     cursor = db.conversations.find(query).sort("last_message_at", -1)
     convs = [doc async for doc in cursor]
 
     user_ids = set()
+    job_ids = set()
     for c in convs:
         user_ids.add(c["poster_user_id"])
         user_ids.add(c["responder_user_id"])
+        if c.get("job_id"):
+            job_ids.add(c["job_id"])
 
     users_cursor = db.users.find({"_id": {"$in": list(user_ids)}})
     user_names: dict = {}
     async for u in users_cursor:
         user_names[u["_id"]] = u.get("full_name", "")
+
+    job_statuses: dict = {}
+    if job_ids:
+        jobs_cursor = db.jobs.find(
+            {"_id": {"$in": list(job_ids)}},
+            {"status": 1},
+        )
+        async for j in jobs_cursor:
+            job_statuses[j["_id"]] = j.get("status")
 
     for c in convs:
         poster_name = user_names.get(c["poster_user_id"], "")
@@ -124,6 +143,9 @@ async def list_conversations(
             c["poster_name"] = poster_name
         if responder_name:
             c["responder_name"] = responder_name
+        status = job_statuses.get(c.get("job_id"))
+        if status:
+            c["job_status"] = status
 
     return [conversation_doc_to_response(c) for c in convs]
 
@@ -151,6 +173,11 @@ async def get_conversation(
         conv["poster_name"] = poster["full_name"]
     if responder and responder.get("full_name"):
         conv["responder_name"] = responder["full_name"]
+
+    if conv.get("job_id"):
+        job = await db.jobs.find_one({"_id": conv["job_id"]}, {"status": 1})
+        if job and job.get("status"):
+            conv["job_status"] = job["status"]
 
     return conversation_doc_to_response(conv)
 
@@ -243,6 +270,15 @@ async def send_message(
             "$inc": {unread_field: 1},
         },
     )
+
+    # Count this conversation against the job's responses only on the first
+    # real message. Prior to this the conversation was "empty" and shouldn't
+    # count.
+    if not conv.get("last_message_at") and conv.get("job_id"):
+        await db.jobs.update_one(
+            {"_id": conv["job_id"]},
+            {"$inc": {"conversation_count": 1}},
+        )
 
     broadcast_msg = {
         "id": str(result.inserted_id),

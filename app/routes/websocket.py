@@ -117,6 +117,13 @@ async def websocket_chat(
                 },
             )
 
+            if not conv.get("last_message_at") and conv.get("job_id"):
+                await db.jobs.update_one(
+                    {"_id": conv["job_id"]},
+                    {"$inc": {"conversation_count": 1}},
+                )
+            conv["last_message_at"] = now
+
             broadcast_msg = {
                 "id": str(result.inserted_id),
                 "conversation_id": conversation_id,
