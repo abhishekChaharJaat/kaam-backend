@@ -2,7 +2,12 @@ from datetime import datetime
 from bson import ObjectId
 from typing import Optional
 
+import httpx
+
 from app.database import get_db
+
+
+EXPO_PUSH_URL = "https://exp.host/--/api/v2/push/send"
 
 
 async def create_notification(
@@ -27,55 +32,121 @@ async def create_notification(
     result = await db.notifications.insert_one(doc)
     doc["_id"] = result.inserted_id
 
-    # TODO: Send FCM push when Firebase Admin SDK is configured
-    # This is a placeholder for future FCM integration
-    await _send_fcm_push(user_id, title, body, reference_id, reference_type)
+    await _send_expo_push(user_id, title, body, reference_id, reference_type)
 
     return doc
 
 
-async def _send_fcm_push(
+async def _send_expo_push(
     user_id: ObjectId,
     title: str,
     body: str,
     reference_id: Optional[ObjectId] = None,
     reference_type: Optional[str] = None,
 ):
-    """Placeholder for FCM push notification delivery."""
+    """Send push notification via Expo Push API."""
     db = get_db()
     user = await db.users.find_one({"_id": user_id})
     if not user:
         return
 
-    fcm_token = user.get("device_info", {}).get("fcm_token") if user.get("device_info") else None
-    if not fcm_token:
+    push_token = (
+        user.get("device_info", {}).get("expo_push_token")
+        if user.get("device_info")
+        else None
+    )
+    if not push_token or not push_token.startswith("ExponentPushToken["):
         return
 
-    # Firebase Admin SDK integration will go here
-    # firebase_admin.messaging.send(Message(...))
+    message = {
+        "to": push_token,
+        "title": title,
+        "body": body,
+        "sound": "default",
+        "data": {},
+    }
+    if reference_id:
+        message["data"]["reference_id"] = str(reference_id)
+    if reference_type:
+        message["data"]["reference_type"] = reference_type
+
+    try:
+        async with httpx.AsyncClient() as client:
+            await client.post(
+                EXPO_PUSH_URL,
+                json=message,
+                headers={
+                    "Content-Type": "application/json",
+                    "Accept": "application/json",
+                },
+            )
+    except Exception:
+        pass  # Don't fail the request if push delivery fails
 
 
 async def notify_new_job(job_doc: dict):
-    """Send new-job notifications to matching workers in the area."""
+    """Send new-job notifications to matching workers within their work range."""
     db = get_db()
     category_id = job_doc.get("category_id")
-    location = job_doc.get("location")
+    job_location = job_doc.get("location")
 
-    query: dict = {
-        "usage_preference": "find_work",
-        "is_active": True,
-    }
-
+    # Find workers with matching category via service_profiles
+    matching_user_ids = []
     profiles = db.service_profiles.find({"category_ids": category_id})
     async for profile in profiles:
+        matching_user_ids.append(profile["user_id"])
+
+    if not matching_user_ids:
+        return
+
+    # Fetch those users who are active workers
+    workers = db.users.find({
+        "_id": {"$in": matching_user_ids},
+        "usage_preference": "find_work",
+        "is_active": True,
+    })
+
+    job_coords = (
+        job_location.get("coordinates") if job_location else None
+    )
+
+    async for worker in workers:
+        # Check if job is within worker's range
+        if job_coords and worker.get("location"):
+            worker_coords = worker["location"].get("coordinates")
+            worker_range = worker.get("work_range_km")
+
+            if worker_coords and worker_range:
+                dist = _haversine_km(
+                    worker_coords[1], worker_coords[0],
+                    job_coords[1], job_coords[0],
+                )
+                if dist > worker_range:
+                    continue  # Job is outside worker's range
+
         await create_notification(
-            user_id=profile["user_id"],
+            user_id=worker["_id"],
             notification_type="new_job",
             title="New Job Nearby",
             body=f'{job_doc.get("title", "A new job")} has been posted in your area',
             reference_id=job_doc["_id"],
             reference_type="job",
         )
+
+
+def _haversine_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+    """Calculate distance between two lat/lng points in km."""
+    import math
+    R = 6371
+    d_lat = math.radians(lat2 - lat1)
+    d_lon = math.radians(lon2 - lon1)
+    a = (
+        math.sin(d_lat / 2) ** 2
+        + math.cos(math.radians(lat1))
+        * math.cos(math.radians(lat2))
+        * math.sin(d_lon / 2) ** 2
+    )
+    return R * 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
 
 
 async def notify_job_assigned(job_doc: dict, assigned_user_id: ObjectId):

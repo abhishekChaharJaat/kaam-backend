@@ -8,6 +8,7 @@ from app.middleware.auth import get_current_user_id
 from app.models.job import JobCreate, JobUpdate, JobResponse, job_doc_to_response
 from app.utils.geo import build_near_sphere_query
 from app.services.spam_service import check_daily_job_limit, check_duplicate_job
+from app.services.notification_service import notify_new_job
 from app.config import get_settings
 
 router = APIRouter(prefix="/jobs", tags=["jobs"])
@@ -74,6 +75,11 @@ async def create_job(
 
     result = await db.jobs.insert_one(job_doc)
     job_doc["_id"] = result.inserted_id
+
+    # Notify matching workers in the background
+    import asyncio
+    asyncio.create_task(notify_new_job(job_doc))
+
     return job_doc_to_response(job_doc)
 
 

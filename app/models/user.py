@@ -14,6 +14,7 @@ class DeviceInfo(BaseModel):
     device_model: Optional[str] = None
     app_version: Optional[str] = None
     fcm_token: Optional[str] = None
+    expo_push_token: Optional[str] = None
 
 
 class UserCreate(BaseModel):

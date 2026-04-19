@@ -95,6 +95,29 @@ async def get_public_profile(user_id: str):
     return resp
 
 
+@router.post("/me/push-token")
+async def save_push_token(
+    body: dict,
+    clerk_user_id: str = Depends(get_current_user_id),
+):
+    token = body.get("expo_push_token")
+    if not token:
+        raise HTTPException(status_code=400, detail="expo_push_token is required")
+    db = get_db()
+    result = await db.users.update_one(
+        {"clerk_user_id": clerk_user_id},
+        {
+            "$set": {
+                "device_info.expo_push_token": token,
+                "updated_at": datetime.utcnow(),
+            }
+        },
+    )
+    if result.matched_count == 0:
+        raise HTTPException(status_code=404, detail="User not found")
+    return {"message": "Push token saved"}
+
+
 @router.delete("/me")
 async def soft_delete_account(clerk_user_id: str = Depends(get_current_user_id)):
     db = get_db()
