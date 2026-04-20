@@ -103,15 +103,37 @@ async def save_push_token(
     token = body.get("expo_push_token")
     if not token:
         raise HTTPException(status_code=400, detail="expo_push_token is required")
+    platform = body.get("platform")
     db = get_db()
+
+    new_fields: dict = {"expo_push_token": token}
+    if platform:
+        new_fields["platform"] = platform
+
+    # Use an aggregation-pipeline update so it works whether `device_info`
+    # is missing, null, or already an object (a plain dotted-path $set
+    # fails with "Cannot create field … in element {device_info: null}").
     result = await db.users.update_one(
         {"clerk_user_id": clerk_user_id},
-        {
-            "$set": {
-                "device_info.expo_push_token": token,
-                "updated_at": datetime.utcnow(),
+        [
+            {
+                "$set": {
+                    "device_info": {
+                        "$mergeObjects": [
+                            {
+                                "$cond": [
+                                    {"$eq": [{"$type": "$device_info"}, "object"]},
+                                    "$device_info",
+                                    {},
+                                ]
+                            },
+                            new_fields,
+                        ]
+                    },
+                    "updated_at": datetime.utcnow(),
+                }
             }
-        },
+        ],
     )
     if result.matched_count == 0:
         raise HTTPException(status_code=404, detail="User not found")

@@ -8,7 +8,11 @@ from app.middleware.auth import get_current_user_id
 from app.models.job import JobCreate, JobUpdate, JobResponse, job_doc_to_response
 from app.utils.geo import build_near_sphere_query
 from app.services.spam_service import check_daily_job_limit, check_duplicate_job
-from app.services.notification_service import notify_new_job
+from app.services.notification_service import (
+    notify_new_job,
+    notify_job_assigned,
+    notify_job_reopened,
+)
 from app.config import get_settings
 
 router = APIRouter(prefix="/jobs", tags=["jobs"])
@@ -367,6 +371,9 @@ async def assign_job(
         ]
         await db.messages.insert_many(closed_msgs)
 
+    import asyncio
+    asyncio.create_task(notify_job_assigned(job, assigned_user_id))
+
     return {"message": "Job assigned", "assigned_to_user_id": str(assigned_user_id)}
 
 
@@ -478,6 +485,9 @@ async def reopen_job(
         {"job_id": oid},
         {"$set": {"is_disabled": False, "is_assigned": False}},
     )
+
+    import asyncio
+    asyncio.create_task(notify_job_reopened(job))
 
     return {"message": "Job reopened"}
 

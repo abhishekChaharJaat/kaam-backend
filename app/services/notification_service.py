@@ -71,8 +71,8 @@ async def _send_expo_push(
         message["data"]["reference_type"] = reference_type
 
     try:
-        async with httpx.AsyncClient() as client:
-            await client.post(
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.post(
                 EXPO_PUSH_URL,
                 json=message,
                 headers={
@@ -80,8 +80,16 @@ async def _send_expo_push(
                     "Accept": "application/json",
                 },
             )
-    except Exception:
-        pass  # Don't fail the request if push delivery fails
+        try:
+            payload = resp.json()
+        except Exception:
+            payload = {"_raw": resp.text}
+        print(
+            f"[push] expo {resp.status_code} to user={user_id} "
+            f"token={push_token} resp={payload}"
+        )
+    except Exception as e:
+        print(f"[push] expo call failed for user={user_id} token={push_token}: {e!r}")
 
 
 async def notify_new_job(job_doc: dict):
@@ -89,6 +97,10 @@ async def notify_new_job(job_doc: dict):
     db = get_db()
     category_id = job_doc.get("category_id")
     job_location = job_doc.get("location")
+    print(
+        f"[notify_new_job] job={job_doc.get('_id')} title={job_doc.get('title')!r} "
+        f"category_id={category_id} has_location={bool(job_location)}"
+    )
 
     # Find workers with matching category via service_profiles
     matching_user_ids = []
@@ -96,21 +108,33 @@ async def notify_new_job(job_doc: dict):
     async for profile in profiles:
         matching_user_ids.append(profile["user_id"])
 
+    print(
+        f"[notify_new_job] matching service_profiles by category: "
+        f"{len(matching_user_ids)} -> {[str(x) for x in matching_user_ids]}"
+    )
+
     if not matching_user_ids:
+        print("[notify_new_job] no service_profiles match this category. Exiting.")
         return
 
     # Fetch those users who are active workers
-    workers = db.users.find({
+    workers_list = await db.users.find({
         "_id": {"$in": matching_user_ids},
         "usage_preference": "find_work",
         "is_active": True,
-    })
+    }).to_list(length=None)
+
+    print(
+        f"[notify_new_job] active 'find_work' users among matches: {len(workers_list)} "
+        f"-> {[str(w['_id']) for w in workers_list]}"
+    )
 
     job_coords = (
         job_location.get("coordinates") if job_location else None
     )
 
-    async for worker in workers:
+    notified = 0
+    for worker in workers_list:
         # Check if job is within worker's range
         if job_coords and worker.get("location"):
             worker_coords = worker["location"].get("coordinates")
@@ -122,6 +146,10 @@ async def notify_new_job(job_doc: dict):
                     job_coords[1], job_coords[0],
                 )
                 if dist > worker_range:
+                    print(
+                        f"[notify_new_job] skip user={worker['_id']} "
+                        f"dist={dist:.2f}km > range={worker_range}km"
+                    )
                     continue  # Job is outside worker's range
 
         await create_notification(
@@ -132,6 +160,9 @@ async def notify_new_job(job_doc: dict):
             reference_id=job_doc["_id"],
             reference_type="job",
         )
+        notified += 1
+
+    print(f"[notify_new_job] notified {notified} workers")
 
 
 def _haversine_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
